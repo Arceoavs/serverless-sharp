@@ -1,81 +1,85 @@
-const AWS = require('aws-sdk')
-const sharp = require('sharp')
-const fs = require('fs')
-const path = require('path')
-const { spawnSync } = require('child_process')
+const sharp = require("sharp");
+const fs = require("fs");
+const path = require("path");
+const { spawnSync } = require("child_process");
 
-const ImageRequest = require('./ImageRequest')
+const ImageRequest = require("./ImageRequest");
 
-const imageOps = require('./image-ops')
+const imageOps = require("./image-ops");
 
 class ImageHandler {
   /**
    * @param {ImageRequest} request
    */
-  constructor (request) {
+  constructor(request) {
     if (!(request instanceof ImageRequest)) {
-      throw new Error('Expected request of type ImageRequest')
+      throw new Error("Expected request of type ImageRequest");
     }
     if (!request.originalImageObject) {
-      throw new Error('Image not found or request not fully processed!')
+      throw new Error("Image not found or request not fully processed!");
     }
-    this.request = request
+    this.request = request;
   }
 
   /**
    * Main method for processing image requests and outputting modified images.
    */
-  async process () {
+  async process() {
     // Get the original image
-    const originalImageObject = this.request.originalImageObject
-    const originalImageBody = this.request.originalImageBody
+    const originalImageObject = this.request.originalImageObject;
+    const originalImageBody = this.request.originalImageBody;
 
-    let contentType = originalImageObject.ContentType
+    let contentType = originalImageObject.ContentType;
 
-    let format
-    let bufferImage
+    let format;
+    let bufferImage;
     // We have some edits to process
     if (Object.keys(this.request.edits).length) {
       try {
-        const modifiedImage = await this.applyEdits(originalImageBody, this.request.edits)
-        const optimizedImage = await this.applyOptimizations(modifiedImage)
-        bufferImage = await optimizedImage.toBuffer()
-        format = optimizedImage.options.formatOut
+        const modifiedImage = await this.applyEdits(
+          originalImageBody,
+          this.request.edits
+        );
+        const optimizedImage = await this.applyOptimizations(modifiedImage);
+        bufferImage = await optimizedImage.toBuffer();
+        format = optimizedImage.options.formatOut;
       } catch (err) {
-        console.error('Unhandlable image encountered', err)
-        bufferImage = Buffer.from(originalImageBody, 'binary')
+        console.error("Unhandlable image encountered", err);
+        bufferImage = Buffer.from(originalImageBody, "binary");
       }
     } else {
       // No edits, just return the original
-      bufferImage = Buffer.from(originalImageBody, 'binary')
+      bufferImage = Buffer.from(originalImageBody, "binary");
     }
     if (format) {
       switch (format.toLowerCase()) {
-        case 'jpeg':
-        case 'jpg':
-          contentType = 'image/jpeg'
-          break
-        case 'png':
-          contentType = 'image/png'
-          break
-        case 'webp':
-          contentType = 'image/webp'
-          break
-        case 'gif':
-          contentType = 'image/gif'
-          break
-        case 'input':
-          break
+        case "jpeg":
+        case "jpg":
+          contentType = "image/jpeg";
+          break;
+        case "png":
+          contentType = "image/png";
+          break;
+        case "webp":
+          contentType = "image/webp";
+          break;
+        case "gif":
+          contentType = "image/gif";
+          break;
+        case "input":
+          break;
         default:
-          console.warn('Unexpected output content type encountered: ' + contentType)
+          console.warn(
+            "Unexpected output content type encountered: " + contentType
+          );
       }
     }
 
     return {
       CacheControl: originalImageObject.CacheControl,
-      Body: bufferImage.toString('base64'),
-      ContentType: contentType
-    }
+      Body: bufferImage.toString("base64"),
+      ContentType: contentType,
+    };
   }
 
   /**
@@ -84,11 +88,11 @@ class ImageHandler {
    * @param {Buffer} originalImage - The original image.
    * @param {Object} edits - The edits to be made to the original image.
    */
-  async applyEdits (originalImage, edits) {
-    const image = sharp(originalImage)
-    await imageOps.restrictSize(image, await image.metadata())
-    await imageOps.apply(image, edits)
-    return image
+  async applyEdits(originalImage, edits) {
+    const image = sharp(originalImage);
+    await imageOps.restrictSize(image, await image.metadata());
+    await imageOps.apply(image, edits);
+    return image;
   }
 
   /**
@@ -98,97 +102,105 @@ class ImageHandler {
    * @param headers
    * @returns {Promise<Sharp>}
    */
-  async applyOptimizations (image) {
+  async applyOptimizations(image) {
     // const minColors = 128 // arbitrary number
     // const maxColors = 256 * 256 * 256 // max colors in RGB color space
-    const { edits, headers } = this.request
-    const { auto } = edits
+    const { edits, headers } = this.request;
+    const { auto } = edits;
 
-    let autoVals = auto.processedValue
+    let autoVals = auto.processedValue;
     if (!Array.isArray(autoVals)) {
-      autoVals = []
+      autoVals = [];
     }
 
     // Determine our quality - if it was implicitly determined, we'll use the environment setting rather than the schema
-    let quality = parseInt(process.env.DEFAULT_QUALITY)
+    let quality = parseInt(process.env.DEFAULT_QUALITY);
     if (edits.q.implicit !== true) {
-      quality = parseInt(edits.q.processedValue)
+      quality = parseInt(edits.q.processedValue);
       if (quality < 1) {
-        quality = 1
+        quality = 1;
       } else if (quality > 100) {
-        quality = 100
+        quality = 100;
       }
     }
 
     // Get the image metadata and the initial format
-    const metadata = await image.metadata()
-    let fm = edits.fm.processedValue
+    const metadata = await image.metadata();
+    let fm = edits.fm.processedValue;
     if (fm === null) {
-      fm = metadata.format
+      fm = metadata.format;
     }
 
-    if (autoVals.includes('compress')) {
-      quality = parseInt(process.env.DEFAULT_COMPRESS_QUALITY)
-      if (!metadata.hasAlpha && (fm === 'png' || fm === 'tiff')) {
-        fm = 'jpeg'
-      } else if (metadata.hasAlpha && fm === 'png') {
-        fm = 'png'
+    if (autoVals.includes("compress")) {
+      quality = parseInt(process.env.DEFAULT_COMPRESS_QUALITY);
+      if (!metadata.hasAlpha && (fm === "png" || fm === "tiff")) {
+        fm = "jpeg";
+      } else if (metadata.hasAlpha && fm === "png") {
+        fm = "png";
       }
     }
 
-    if (autoVals.includes('format')) {
+    if (autoVals.includes("format")) {
       // If the browser supports webp, use webp for everything but gifs
-      if (headers && 'Accept' in headers) {
-        if (fm !== 'gif' && headers.Accept.indexOf('image/webp') !== -1) {
-          fm = 'webp'
+      if (headers && "Accept" in headers) {
+        if (fm !== "gif" && headers.Accept.indexOf("image/webp") !== -1) {
+          fm = "webp";
         }
       }
     }
 
     // adjust quality based on file type
-    if (fm === 'jpg' || fm === 'jpeg') {
+    if (fm === "jpg" || fm === "jpeg") {
       await image.jpeg({
         quality: quality,
-        trellisQuantisation: true
-      })
-    } else if (fm === 'png') {
+        trellisQuantisation: true,
+      });
+    } else if (fm === "png") {
       // ensure that we do not reduce quality if param is not given
-      if (autoVals.includes('compress') && quality < 100 && edits.q !== undefined) {
-        const minQuality = quality - 20 > 0 ? quality - 20 : 0
+      if (
+        autoVals.includes("compress") &&
+        quality < 100 &&
+        edits.q !== undefined
+      ) {
+        const minQuality = quality - 20 > 0 ? quality - 20 : 0;
         const pngQuantOptions = [
-            '--speed', process.env.PNGQUANT_SPEED || '10',
-            '--quality', minQuality + '-' + quality,
-            '-' // use stdin
-        ]
-        const binaryLocation = this.findBin('pngquant')
+          "--speed",
+          process.env.PNGQUANT_SPEED || "10",
+          "--quality",
+          minQuality + "-" + quality,
+          "-", // use stdin
+        ];
+        const binaryLocation = this.findBin("pngquant");
         if (binaryLocation) {
-          const buffer = await image.png({compressionLevel:0}).toBuffer()
-          const pngquant = spawnSync(binaryLocation, pngQuantOptions, { input: buffer })
-          image = sharp(pngquant.stdout)
+          const buffer = await image.png({ compressionLevel: 0 }).toBuffer();
+          const pngquant = spawnSync(binaryLocation, pngQuantOptions, {
+            input: buffer,
+          });
+          image = sharp(pngquant.stdout);
         } else {
-          console.warn('Skipping pngquant - could not find executable!')
+          console.warn("Skipping pngquant - could not find executable!");
           await image.png({
-            quality: quality
-          })
+            quality: quality,
+          });
         }
       } else {
         await image.png({
-          quality: quality
-        })
+          quality: quality,
+        });
       }
-    } else if (fm === 'webp') {
+    } else if (fm === "webp") {
       const options = {
-        quality: quality
+        quality: quality,
+      };
+      if ("lossless" in edits && edits.lossless === "true") {
+        options.lossless = true;
       }
-      if ('lossless' in edits && edits.lossless === 'true') {
-        options.lossless = true
-      }
-      await image.webp(options)
+      await image.webp(options);
     } else {
-      await image.toFormat(edits.fm)
+      await image.toFormat(edits.fm);
     }
 
-    return image
+    return image;
   }
 
   /**
@@ -196,16 +208,16 @@ class ImageHandler {
    * @param binName
    * @returns {string}
    */
-  findBin (binName) {
-    process.env.PATH = process.env.PATH + ':' + process.env.LAMBDA_TASK_ROOT
-    const binPath = path.resolve('./bin/', process.platform, binName)
+  findBin(binName) {
+    process.env.PATH = process.env.PATH + ":" + process.env.LAMBDA_TASK_ROOT;
+    const binPath = path.resolve("./bin/", process.platform, binName);
 
     if (!fs.existsSync(binPath)) {
-      console.warn('Supposedly could not find binPath, continue anyway.')
+      console.warn("Supposedly could not find binPath, continue anyway.");
     }
-    return binPath
+    return binPath;
   }
 }
 
 // Exports
-module.exports = ImageHandler
+module.exports = ImageHandler;
